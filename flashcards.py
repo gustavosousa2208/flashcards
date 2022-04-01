@@ -1,5 +1,36 @@
 # TODO: remove functions that are not used
+# TODO: fix card matching by term or definition
+import builtins
 import random
+import logging
+from io import StringIO
+import sys
+
+log_stream = StringIO()
+handler = logging.StreamHandler(log_stream)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.addHandler(handler)
+
+
+def print(*args, sep=' ', end='\n', file=sys.stdout):
+    logger.info(sep.join(map(str, args)).replace('\n', ''))
+    builtins.print(*args, sep=sep, end=end, file=file)
+
+
+def input(*args, **kwargs):
+    print(*args, **kwargs, end='',)
+    log_input = builtins.input()
+    logger.info(log_input)
+    return log_input
+
+
+def log(file):
+    try:
+        with open(file, 'w') as f:
+            f.write(log_stream.getvalue())
+    except FileNotFoundError:
+        pass
 
 
 class Deck:
@@ -18,8 +49,8 @@ class Deck:
         else:
             return False
 
-    def add_card(self, term, definition):
-        self.cards.append(Card(term, definition))
+    def add_card(self, term, definition, mistakes=0):
+        self.cards.append(Card(term, definition, mistakes))
 
     def terms(self):
         terms = []
@@ -62,6 +93,7 @@ class Deck:
     def update_card(self, term, definition):
         for card in self.cards:
             if card.term == term:
+                old_def = card.definition
                 card.definition = definition
                 return True
         return False
@@ -69,12 +101,28 @@ class Deck:
     def shuffle(self):
         random.shuffle(self.cards)
 
+    def hardest(self):
+        hardest = None
+        for x in self.cards:
+            if x.mistakes > 0:
+                if hardest is None:
+                    hardest = x
+                elif x.mistakes > hardest.mistakes:
+                    hardest = x
+
+        return hardest
+
+    def reset_stats(self):
+        for card in self.cards:
+            card.mistakes = 0
+
 
 class Card:
 
-    def __init__(self, term, definition):
+    def __init__(self, term, definition, mistakes=0):
         self.term = term
         self.definition = definition
+        self.mistakes = mistakes
 
 
 class Menu:
@@ -83,7 +131,8 @@ class Menu:
 
     def menu(self):
         while True:
-            action = str(input('Input the action (add, remove, import, export, ask, exit): \n'))
+            action = str(
+                input('Input the action (add, remove, import, export, ask, exit, log, hardest card, reset stats): \n'))
             if action == 'add':
                 self.add()
             elif action == 'remove':
@@ -100,6 +149,15 @@ class Menu:
             elif action == 'oi':
                 for x in self.deck.cards:
                     print(x.term, x.definition)
+            elif action == 'hardest card':
+                self.hardest_card()
+            elif action == 'reset stats':
+                self.deck.reset_stats()
+                print("Card statistics have been reset. \n")
+            elif action == 'log':
+                file = str(input("File name: \n"))
+                log(file)
+                print("The log has been saved. \n")
 
     def add(self):
         term = str(input('The card: \n'))
@@ -119,7 +177,7 @@ class Menu:
         print(f'The pair ("{term}":"{definition}") has been added.\n')
 
     def remove(self):
-        action = str(input('Which card? '))
+        action = str(input('Which card? \n'))
         if self.deck.remove_card(action):
             print(f'The card has been removed.\n')
         else:
@@ -132,11 +190,11 @@ class Menu:
             with open(file, 'r') as f:
                 count = 0
                 for line in f:
-                    term, definition = line.strip('\n').split(':')
+                    term, definition, mistakes = line.strip('\n').split(':')
                     if self.deck.term_exists(term):
                         self.deck.update_card(term, definition)
                     else:
-                        self.deck.add_card(term, definition)
+                        self.deck.add_card(term, definition, mistakes)
                     count += 1
             print(f'{count} cards have been loaded.\n')
         except FileNotFoundError:
@@ -145,23 +203,29 @@ class Menu:
     def export(self):
         action = str(input("File name: \n"))
         try:
-            with open(action, 'a') as f:
+            with open(action, 'a+') as f:
+                count = 0
+                f.seek(0)
+                data = f.readlines()
                 for card in self.deck.cards:
                     # TODO: find the best way to write the file
-                    f.writelines(f'{card.term}:{card.definition}\n')
-            print(f"{len(self.deck.cards)} cards have been saved.")
+                    writing = f'{card.term}:{card.definition}:{card.mistakes}\n'
+                    if writing not in data:
+                        f.writelines(writing)
+                        count += 1
+            print(f"{count} cards have been saved.\n")
         except FileNotFoundError:
             print('File not found')
 
     def ask(self):
         n = int(input('How many times to ask?\n'))
-        self.deck.shuffle()
         for _ in range(n):
             x = random.randint(0, len(self.deck.cards) - 1)
             ans = str(input(f'Print the definition of "{self.deck.cards[x].term}":\n'))
             if self.deck.match_def(ans, self.deck.cards[x].term):
                 print('Correct!\n')
             else:
+                self.deck.cards[x].mistakes += 1
                 if self.deck.definition_exists(ans):
                     print(
                         f'Wrong. The right answer is "{self.deck.cards[x].definition}", but your definition is '
@@ -169,40 +233,12 @@ class Menu:
                 else:
                     print(f'Wrong. The right answer is "{self.deck.cards[x].definition}".\n')
 
-
-def add_card(c):
-    n = int(input("Input the number of cards: \n"))
-
-    for card in range(n):
-        key = str(input("The term for card #{}:\n".format(card + 1)))
-
-        while True:
-            if c.term_exists(key):
-                key = str(input(f'The term "{key}" already exists. Try again:\n'))
-            else:
-                break
-
-        definition = str(input("The definition for card #{}:\n".format(card + 1)))
-        while True:
-            if c.definition_exists(definition):
-                definition = str(input(f'The definition "{definition}" already exists. Try again:\n'))
-            else:
-                c.add_card(key, definition)
-                break
-
-
-def check_all_answers(cards):
-    for x in cards.terms():
-        print(f'Print the definition of "{x}": ')
-        user_input = str(input())
-        if user_input == cards.match(x):
-            print("Correct!")
+    def hardest_card(self):
+        hardest = self.deck.hardest()
+        if hardest is not None:
+            print(f'The hardest card is "{hardest.term}". You have {hardest.mistakes} errors answering it.')
         else:
-            if cards.match_def(user_input, ) is None:
-                print(f'Wrong. The right answer is "{cards.match(x)}".')
-            else:
-                print(
-                    f'Wrong. The right answer is "{cards.match(x)}", but your definition is correct for "{cards.match_def(user_input, )}".')
+            print('There are no cards with errors.\n')
 
 
 if __name__ == "__main__":
