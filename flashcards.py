@@ -1,16 +1,22 @@
 # TODO: remove functions that are not used
 # TODO: fix card matching by term or definition
+
 import builtins
 import random
 import logging
-from io import StringIO
 import sys
+import argparse
+from io import StringIO
 
 log_stream = StringIO()
 handler = logging.StreamHandler(log_stream)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(handler)
+
+parser = argparse.ArgumentParser(description='Flashcards')
+parser.add_argument('--import_from', action='store')
+parser.add_argument('--export_to', action='store')
 
 
 def print(*args, sep=' ', end='\n', file=sys.stdout):
@@ -93,7 +99,6 @@ class Deck:
     def update_card(self, term, definition):
         for card in self.cards:
             if card.term == term:
-                old_def = card.definition
                 card.definition = definition
                 return True
         return False
@@ -183,14 +188,16 @@ class Menu:
         else:
             print(f'Can\'t remove "{action}": there is no such card.')
 
-    def import_(self):
+    def import_(self, file=None):
         # TODO: find the best way to import the file
-        file = str(input('File name: \n'))
+        if file is None:
+            file = str(input('File name: \n'))
         try:
             with open(file, 'r') as f:
                 count = 0
                 for line in f:
                     term, definition, mistakes = line.strip('\n').split(':')
+                    mistakes = int(mistakes)
                     if self.deck.term_exists(term):
                         self.deck.update_card(term, definition)
                     else:
@@ -199,9 +206,11 @@ class Menu:
             print(f'{count} cards have been loaded.\n')
         except FileNotFoundError:
             print('File not found.\n')
+        file = None
 
-    def export(self):
-        action = str(input("File name: \n"))
+    def export(self, action=None):
+        if action is None:
+            action = str(input("File name: \n"))
         try:
             with open(action, 'a+') as f:
                 count = 0
@@ -213,9 +222,11 @@ class Menu:
                     if writing not in data:
                         f.writelines(writing)
                         count += 1
-            print(f"{count} cards have been saved.\n")
+            # TODO: change len to count
+            print(f"{len(self.deck.cards)} cards have been saved.\n")
         except FileNotFoundError:
             print('File not found')
+        action = None
 
     def ask(self):
         n = int(input('How many times to ask?\n'))
@@ -241,5 +252,17 @@ class Menu:
             print('There are no cards with errors.\n')
 
 
+def main():
+    arguments = vars(parser.parse_args())
+    menu = Menu(Deck())
+
+    if arguments['import_from'] is not None:
+        menu.import_(arguments['import_from'])
+
+    menu.menu()
+    if arguments['export_to'] is not None:
+        menu.export(arguments['export_to'])
+
+
 if __name__ == "__main__":
-    Menu(Deck()).menu()
+    main()
